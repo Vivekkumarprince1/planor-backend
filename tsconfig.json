@@ -1,0 +1,13 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "moduleResolution": "node",
+    "types": ["node", "jest"],
+    "noImplicitAny": false,
+    "paths": {
+      "@planner/types": ["../../packages/types/src"]
+    }
+  },
+  "include": ["src/**/*", "tests/**/*"]
+}
