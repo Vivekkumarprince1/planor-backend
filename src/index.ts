@@ -22,6 +22,10 @@ import { MessageModel } from './models/Chat';
 import { auth, AuthPayload } from './middleware/auth';
 
 const app = express();
+
+// Trust proxy when running behind a reverse proxy (like Render)
+app.set('trust proxy', 1);
+
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(helmet());
