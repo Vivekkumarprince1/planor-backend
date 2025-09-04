@@ -128,13 +128,26 @@ router.post('/', auth, async (req: AuthRequest, res: Response) => {
 // GET /api/requirements - Get user's requirements or manager's relevant requirements
 router.get('/', auth, async (req: AuthRequest, res: Response) => {
   try {
-    const { status, page = 1, limit = 10 } = req.query;
+    const { status, page = 1, limit = 10, view = 'my' } = req.query;
     const user = req.user!;
+
+    console.log('GET /requirements - User info:', { 
+      id: user._id, 
+      role: user.role,
+      status: status,
+      view: view 
+    });
 
     let query: any = {};
 
-    if (user.role === 'manager') {
-      // For managers, get requirements they can quote on
+    // Check if this is specifically for "my requirements" (user's own requirements)
+    // or if it's the default view which should show user's own requirements
+    if (view === 'my' || !view) {
+      // Always show user's own requirements
+      query = { userId: user._id };
+      console.log('My requirements query:', query);
+    } else if (user.role === 'manager' && view === 'available') {
+      // For managers, get requirements they can quote on (only when explicitly requested)
       const managerServices = await Service.find({
         managerId: user._id,
         status: 'approved',
@@ -150,19 +163,22 @@ router.get('/', auth, async (req: AuthRequest, res: Response) => {
           { subcategoryId: { $in: subcategoryIds } }
         ]
       };
+      console.log('Manager available requirements query:', query);
     } else {
-      // For users, get their own requirements
+      // Default to user's own requirements
       query = { userId: user._id };
+      console.log('Default user query:', query);
     }
 
     if (status) {
       query.status = status;
     }
 
+    console.log('Final query:', query);
     const skip = (parseInt(page as string) - 1) * parseInt(limit as string);
 
     let requirements;
-    if (user.role === 'manager') {
+    if (user.role === 'manager' && view === 'available') {
       requirements = await Requirement.find(query)
         .populate('userId', 'name email phone')
         .populate('categoryId', 'name')
@@ -184,6 +200,13 @@ router.get('/', auth, async (req: AuthRequest, res: Response) => {
         .limit(parseInt(limit as string))
         .exec();
     }
+
+    console.log('Found requirements:', requirements.length);
+    console.log('Sample requirements:', requirements.slice(0, 2).map(r => ({ 
+      id: r._id, 
+      userId: r.userId, 
+      title: r.title || 'No title' 
+    })));
 
     const total = await Requirement.countDocuments(query);
 
@@ -296,10 +319,47 @@ router.post('/:id/quotes', auth, requireRole('manager'), async (req: AuthRequest
     });
 
     if (existingQuote) {
-      return res.status(400).json({
-        success: false,
-        message: 'You have already submitted a quote for this requirement'
-      });
+      // Allow updating if quote is still pending and not in cart
+      if (existingQuote.status === 'pending' && !existingQuote.inCart) {
+        existingQuote.price = price;
+        existingQuote.notes = notes;
+        existingQuote.availability = availability;
+        existingQuote.serviceId = serviceId;
+        existingQuote.validUntil = validUntil;
+        existingQuote.updatedAt = new Date();
+        
+        await existingQuote.save();
+
+        // Send updated quote message
+        if (existingQuote.chatId) {
+          const updateMessage = new Message({
+            chatId: (existingQuote.chatId as Types.ObjectId).toString(),
+            senderId: managerId.toString(),
+            content: `I've updated my quote to ₹${price}${notes ? `\n\nUpdated notes: ${notes}` : ''}`,
+            type: 'text'
+          });
+          await updateMessage.save();
+        }
+
+        const populatedQuote = await RequirementQuote.findById(existingQuote._id)
+          .populate('managerId', 'name email businessName')
+          .populate('serviceId', 'title')
+          .exec();
+
+        return res.status(200).json({
+          success: true,
+          data: populatedQuote,
+          chatId: existingQuote.chatId,
+          message: 'Quote updated successfully'
+        });
+      } else {
+        return res.status(400).json({
+          success: false,
+          message: existingQuote.inCart 
+            ? 'Quote is already in customer\'s cart and cannot be modified'
+            : 'Quote has been processed and cannot be modified'
+        });
+      }
     }
 
     // Create or find existing chat room between manager and user
@@ -363,6 +423,79 @@ router.post('/:id/quotes', auth, requireRole('manager'), async (req: AuthRequest
     res.status(500).json({
       success: false,
       message: 'Failed to create quote'
+    });
+  }
+});
+
+// POST /api/requirements/:id/chat - Manager initiates chat for a requirement
+router.post('/:id/chat', auth, requireRole('manager'), async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { message } = req.body;
+    const managerId = req.user!._id;
+
+    // Check if requirement exists
+    const requirement = await Requirement.findById(id)
+      .populate('userId', 'name email')
+      .exec();
+
+    if (!requirement) {
+      return res.status(404).json({
+        success: false,
+        message: 'Requirement not found'
+      });
+    }
+
+    if (requirement.status !== 'active') {
+      return res.status(400).json({
+        success: false,
+        message: 'Requirement is not active'
+      });
+    }
+
+    // Create or find existing chat room between manager and user
+    let chat = await Chat.findOne({
+      userId: requirement.userId._id.toString(),
+      managerId: managerId.toString()
+    });
+
+    if (!chat) {
+      chat = new Chat({
+        userId: requirement.userId._id.toString(),
+        managerId: managerId.toString(),
+        participants: [managerId.toString(), requirement.userId._id.toString()],
+        requirementId: id
+      });
+      await chat.save();
+    }
+
+    // Send initial message if provided
+    if (message && message.trim()) {
+      const chatMessage = new Message({
+        chatId: (chat._id as Types.ObjectId).toString(),
+        senderId: managerId.toString(),
+        content: message.trim(),
+        type: 'text'
+      });
+      await chatMessage.save();
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        chatId: chat._id,
+        requirementId: requirement._id,
+        userId: requirement.userId._id,
+        // managerName: req.user!.name
+      },
+      message: 'Chat initiated successfully'
+    });
+
+  } catch (error) {
+    console.error('Initiate chat error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to initiate chat'
     });
   }
 });

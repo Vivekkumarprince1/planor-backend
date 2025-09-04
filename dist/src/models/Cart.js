@@ -36,16 +36,21 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.CartModel = void 0;
 const mongoose_1 = __importStar(require("mongoose"));
 const cartItemSchema = new mongoose_1.Schema({
-    serviceId: { type: String, required: true }, // Store as string for simplicity
+    serviceId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'Service', required: true },
     tierLabel: { type: String, enum: ['small', 'medium', 'large'] },
     qty: { type: Number, required: true, min: 1 },
     dateTime: String,
     notes: String,
     addOnIds: [String],
     priceAtAdd: { type: Number, required: true },
+    // New fields for requirement quotes
+    requirementId: String,
+    quoteId: String,
+    managerId: String,
+    isCustomQuote: { type: Boolean, default: false },
 });
 const cartSchema = new mongoose_1.Schema({
-    userId: { type: String, required: true }, // Store as string for simplicity
+    userId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', required: true },
     items: [cartItemSchema],
     subtotal: { type: Number, required: true, default: 0 },
     coupon: String,

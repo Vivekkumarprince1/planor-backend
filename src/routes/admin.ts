@@ -1,10 +1,12 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
+import mongoose from 'mongoose';
 import { OrderModel } from '../models/Order';
 import { ChatModel, MessageModel } from '../models/Chat';
 import { User } from '../models/User';
 import { Category, Subcategory } from '../models/Taxonomy';
 import { Service } from '../models/Service';
+import { Commission } from '../models/Commission';
 import { auth, requireRole, AuthPayload } from '../middleware/auth';
 
 const router = Router();
@@ -52,10 +54,7 @@ router.get('/managers/pending', auth, requireRole('admin'), async (req: Request 
     
     const managers = await User.find({ 
       role: 'manager',
-      $or: [
-        { approved: { $exists: false } },
-        { approved: false }
-      ]
+      approved: false
     })
       .select('-passwordHash')
       .sort({ createdAt: -1 })
@@ -64,10 +63,7 @@ router.get('/managers/pending', auth, requireRole('admin'), async (req: Request 
 
     const total = await User.countDocuments({ 
       role: 'manager',
-      $or: [
-        { approved: { $exists: false } },
-        { approved: false }
-      ]
+      approved: false
     });
 
     return res.json({
@@ -222,12 +218,11 @@ router.patch('/users/:id/verify', auth, requireRole('admin'), async (req: Reques
     const user = await User.findByIdAndUpdate(
       req.params.id,
       { 
-        isVerified: true,
-        verifiedAt: new Date(),
-        verifiedBy: req.user!._id
+        approved: true,
       },
       { new: true }
     ).select('-passwordHash');
+    console.log("ho gya ");
 
     if (!user) {
       return res.status(404).json({ success: false, error: 'User not found' });
@@ -1086,6 +1081,398 @@ router.get('/analytics/revenue', auth, requireRole('admin'), async (req: Request
       success: true,
       data: analytics,
     });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// =====================================================
+// ADMIN COMMISSION MANAGEMENT
+// =====================================================
+
+// Get all commissions for admin review
+router.get('/commissions', auth, requireRole('admin'), async (req: Request & { user?: AuthPayload }, res: Response) => {
+  try {
+    const { 
+      status, managerId, serviceId, page = 1, limit = 20, 
+      minPercentage, maxPercentage, sort = 'newest' 
+    } = req.query;
+    
+    const filter: any = {};
+    if (status) filter.status = status;
+    if (managerId) filter.managerId = managerId;
+    if (serviceId) filter.serviceId = serviceId;
+    
+    if (minPercentage || maxPercentage) {
+      filter.offeredPercentage = {};
+      if (minPercentage) filter.offeredPercentage.$gte = Number(minPercentage);
+      if (maxPercentage) filter.offeredPercentage.$lte = Number(maxPercentage);
+    }
+    
+    let sortOption: any = { createdAt: -1 };
+    if (sort === 'percentage_asc') sortOption = { offeredPercentage: 1 };
+    else if (sort === 'percentage_desc') sortOption = { offeredPercentage: -1 };
+    else if (sort === 'oldest') sortOption = { createdAt: 1 };
+    
+    const commissions = await Commission.find(filter)
+      .populate('managerId', 'name email phone businessName')
+      .populate('serviceId', 'title slug status basePrice')
+      .populate('adminRespondedBy', 'name email')
+      .sort(sortOption)
+      .limit(Number(limit))
+      .skip((Number(page) - 1) * Number(limit))
+      .lean();
+    
+    const total = await Commission.countDocuments(filter);
+    
+    // Get summary stats
+    const stats = await Commission.aggregate([
+      { $match: filter },
+      {
+        $group: {
+          _id: '$status',
+          count: { $sum: 1 },
+          avgPercentage: { $avg: '$offeredPercentage' }
+        }
+      }
+    ]);
+    
+    return res.json({
+      success: true,
+      data: {
+        items: commissions,
+        total,
+        page: Number(page),
+        limit: Number(limit),
+        totalPages: Math.ceil(total / Number(limit)),
+        stats: stats.reduce((acc: any, stat: any) => {
+          acc[stat._id] = { count: stat.count, avgPercentage: stat.avgPercentage };
+          return acc;
+        }, {})
+      }
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get pending commissions for admin review
+router.get('/commissions/pending', auth, requireRole('admin'), async (req: Request & { user?: AuthPayload }, res: Response) => {
+  try {
+    const { page = 1, limit = 20 } = req.query;
+    
+    const commissions = await Commission.find({ 
+      status: 'pending',
+      $or: [
+        { type: 'manager_offer' },
+        { managerResponse: 'counter' }
+      ]
+    })
+      .populate('managerId', 'name email phone businessName')
+      .populate('serviceId', 'title slug status basePrice categoryId')
+      .populate({
+        path: 'serviceId',
+        populate: {
+          path: 'categoryId',
+          select: 'name slug'
+        }
+      })
+      .sort({ createdAt: -1 })
+      .limit(Number(limit))
+      .skip((Number(page) - 1) * Number(limit))
+      .lean();
+    
+    const total = await Commission.countDocuments({ 
+      status: 'pending',
+      $or: [
+        { type: 'manager_offer' },
+        { managerResponse: 'counter' }
+      ]
+    });
+    
+    return res.json({
+      success: true,
+      data: {
+        items: commissions,
+        total,
+        page: Number(page),
+        limit: Number(limit),
+        totalPages: Math.ceil(total / Number(limit))
+      }
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get commission details for admin review
+router.get('/commissions/:id', auth, requireRole('admin'), async (req: Request & { user?: AuthPayload }, res: Response) => {
+  try {
+    const commission = await Commission.findById(req.params.id)
+      .populate('managerId', 'name email phone businessName')
+      .populate('serviceId', 'title slug status basePrice description categoryId subcategoryId')
+      .populate({
+        path: 'serviceId',
+        populate: [
+          { path: 'categoryId', select: 'name slug' },
+          { path: 'subcategoryId', select: 'name slug' }
+        ]
+      })
+      .populate('adminRespondedBy', 'name email')
+      .populate('negotiationHistory.byUser', 'name email role')
+      .populate('agreedBy', 'name email role')
+      .lean();
+    
+    if (!commission) {
+      return res.status(404).json({ success: false, error: 'Commission not found' });
+    }
+    
+    return res.json({ success: true, data: commission });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Admin counter offer or accept/reject commission
+router.patch('/commissions/:id/respond', auth, requireRole('admin'), async (req: Request & { user?: AuthPayload }, res: Response) => {
+  try {
+    const { action, counterPercentage, notes } = z.object({
+      action: z.enum(['accept', 'reject', 'counter']),
+      counterPercentage: z.number().min(0).max(100).optional(),
+      notes: z.string().max(500).optional()
+    }).parse(req.body);
+    
+    const commission = await Commission.findById(req.params.id);
+    if (!commission) {
+      return res.status(404).json({ success: false, error: 'Commission not found' });
+    }
+
+    // Validate that commission is in the right state for admin response
+    if (commission.status === 'accepted' || commission.status === 'rejected') {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'This commission has already been finalized' 
+      });
+    }
+
+    // Validate counter offer requirements
+    if (action === 'counter') {
+      if (!counterPercentage || counterPercentage <= 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Counter percentage is required and must be greater than 0'
+        });
+      }
+    }
+    
+    commission.adminRespondedBy = new mongoose.Types.ObjectId(req.user!._id);
+    commission.adminRespondedAt = new Date();
+    commission.adminNotes = notes;
+    
+    if (action === 'accept') {
+      commission.status = 'accepted';
+      commission.finalPercentage = commission.offeredPercentage;
+      commission.agreedAt = new Date();
+      commission.agreedBy = new mongoose.Types.ObjectId(req.user!._id);
+      
+      // Update service commission details
+      if (commission.serviceId) {
+        await Service.findByIdAndUpdate(commission.serviceId, {
+          commissionStatus: 'agreed',
+          finalCommissionPercentage: commission.offeredPercentage,
+          commissionId: commission._id
+        });
+      }
+      
+      commission.addNegotiationEntry(
+        'admin_accept',
+        new mongoose.Types.ObjectId(req.user!._id),
+        'admin',
+        commission.offeredPercentage,
+        notes
+      );
+    } else if (action === 'reject') {
+      commission.status = 'rejected';
+      
+      // Update service commission status
+      if (commission.serviceId) {
+        await Service.findByIdAndUpdate(commission.serviceId, {
+          commissionStatus: 'rejected',
+          commissionId: commission._id
+        });
+      }
+      
+      commission.addNegotiationEntry(
+        'admin_reject',
+        new mongoose.Types.ObjectId(req.user!._id),
+        'admin',
+        undefined,
+        notes
+      );
+    } else if (action === 'counter') {
+      commission.adminCounterPercentage = counterPercentage;
+      commission.status = 'negotiating';
+      commission.type = 'admin_counter';
+      
+      // Update service to show negotiation in progress
+      if (commission.serviceId) {
+        await Service.findByIdAndUpdate(commission.serviceId, {
+          commissionStatus: 'negotiating',
+          commissionId: commission._id
+        });
+      }
+      
+      commission.addNegotiationEntry(
+        'admin_counter',
+        new mongoose.Types.ObjectId(req.user!._id),
+        'admin',
+        counterPercentage,
+        notes
+      );
+    }
+    
+    await commission.save();
+    
+    const populatedCommission = await Commission.findById(commission._id)
+      .populate('managerId', 'name email')
+      .populate('serviceId', 'title slug')
+      .populate('adminRespondedBy', 'name email');
+    
+    return res.json({ success: true, data: populatedCommission });
+  } catch (error: any) {
+    console.error('Commission response error:', error);
+    return res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+// Bulk commission actions
+router.patch('/commissions/bulk', auth, requireRole('admin'), async (req: Request & { user?: AuthPayload }, res: Response) => {
+  try {
+    const { commissionIds, action, counterPercentage, notes } = z.object({
+      commissionIds: z.array(z.string()),
+      action: z.enum(['accept', 'reject', 'counter']),
+      counterPercentage: z.number().min(0).max(100).optional(),
+      notes: z.string().max(500).optional()
+    }).parse(req.body);
+    
+    if (action === 'counter' && (!counterPercentage || counterPercentage <= 0)) {
+      return res.status(400).json({ success: false, error: 'Counter percentage required for counter offers and must be greater than 0' });
+    }
+    
+    const results: Array<{ id: string; success: boolean; error?: string }> = [];
+    
+    for (const commissionId of commissionIds) {
+      try {
+        const commission = await Commission.findById(commissionId);
+        if (!commission) {
+          results.push({ id: commissionId, success: false, error: 'Commission not found' });
+          continue;
+        }
+
+        // Check if commission is already finalized
+        if (commission.status === 'accepted' || commission.status === 'rejected') {
+          results.push({ id: commissionId, success: false, error: 'Commission already finalized' });
+          continue;
+        }
+        
+        commission.adminRespondedBy = new mongoose.Types.ObjectId(req.user!._id);
+        commission.adminRespondedAt = new Date();
+        commission.adminNotes = notes;
+        
+        if (action === 'accept') {
+          commission.status = 'accepted';
+          commission.finalPercentage = commission.offeredPercentage;
+          commission.agreedAt = new Date();
+          commission.agreedBy = new mongoose.Types.ObjectId(req.user!._id);
+          
+          if (commission.serviceId) {
+            await Service.findByIdAndUpdate(commission.serviceId, {
+              commissionStatus: 'agreed',
+              finalCommissionPercentage: commission.offeredPercentage,
+              commissionId: commission._id
+            });
+          }
+          
+          commission.addNegotiationEntry('admin_accept', new mongoose.Types.ObjectId(req.user!._id), 'admin', commission.offeredPercentage, notes);
+        } else if (action === 'reject') {
+          commission.status = 'rejected';
+          
+          if (commission.serviceId) {
+            await Service.findByIdAndUpdate(commission.serviceId, {
+              commissionStatus: 'rejected',
+              commissionId: commission._id
+            });
+          }
+          
+          commission.addNegotiationEntry('admin_reject', new mongoose.Types.ObjectId(req.user!._id), 'admin', undefined, notes);
+        } else if (action === 'counter') {
+          commission.adminCounterPercentage = counterPercentage;
+          commission.status = 'negotiating';
+          commission.type = 'admin_counter';
+          
+          if (commission.serviceId) {
+            await Service.findByIdAndUpdate(commission.serviceId, {
+              commissionStatus: 'negotiating',
+              commissionId: commission._id
+            });
+          }
+          
+          commission.addNegotiationEntry('admin_counter', new mongoose.Types.ObjectId(req.user!._id), 'admin', counterPercentage, notes);
+        }
+        
+        await commission.save();
+        results.push({ id: commissionId, success: true });
+      } catch (error: any) {
+        results.push({ id: commissionId, success: false, error: error.message });
+      }
+    }
+    
+    return res.json({ success: true, data: { results } });
+  } catch (error: any) {
+    console.error('Bulk commission action error:', error);
+    return res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+// Get commission statistics for dashboard
+router.get('/commissions/stats', auth, requireRole('admin'), async (req: Request & { user?: AuthPayload }, res: Response) => {
+  try {
+    const stats = await Commission.aggregate([
+      {
+        $facet: {
+          byStatus: [
+            { $group: { _id: '$status', count: { $sum: 1 }, avgPercentage: { $avg: '$offeredPercentage' } } }
+          ],
+          byMonth: [
+            {
+              $group: {
+                _id: {
+                  year: { $year: '$createdAt' },
+                  month: { $month: '$createdAt' }
+                },
+                count: { $sum: 1 },
+                avgPercentage: { $avg: '$offeredPercentage' }
+              }
+            },
+            { $sort: { '_id.year': -1, '_id.month': -1 } },
+            { $limit: 12 }
+          ],
+          totalStats: [
+            {
+              $group: {
+                _id: null,
+                total: { $sum: 1 },
+                avgPercentage: { $avg: '$offeredPercentage' },
+                avgCounterPercentage: { $avg: '$adminCounterPercentage' },
+                avgFinalPercentage: { $avg: '$finalPercentage' }
+              }
+            }
+          ]
+        }
+      }
+    ]);
+    
+    return res.json({ success: true, data: stats[0] });
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error.message });
   }

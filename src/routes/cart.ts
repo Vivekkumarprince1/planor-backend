@@ -1,7 +1,9 @@
 import { Router } from 'express';
 import { CartModel } from '../models/Cart';
+import { RequirementQuote } from '../models/Requirement';
 import { auth } from '../middleware/auth';
 import { z } from 'zod';
+import mongoose from 'mongoose';
 
 interface AuthRequest extends Request {
   user?: {
@@ -21,6 +23,11 @@ const addItemSchema = z.object({
   notes: z.string().optional(),
   addOnIds: z.array(z.string()).optional(),
   priceAtAdd: z.number(),
+  // New fields for requirement quotes
+  requirementId: z.string().optional(),
+  quoteId: z.string().optional(),
+  managerId: z.string().optional(),
+  isCustomQuote: z.boolean().optional(),
 });
 
 const updateItemSchema = z.object({
@@ -32,8 +39,8 @@ const updateItemSchema = z.object({
 // GET /api/v1/cart - Get user's cart
 router.get('/', auth, async (req: any, res) => {
   try {
-    const cart = await CartModel.findOne({ userId: req.user!._id })
-      .populate('items.serviceId', 'title basePrice priceTiers');
+    const cart = await CartModel.findOne({ userId: new mongoose.Types.ObjectId(req.user!._id) })
+      .populate('items.serviceId', 'title basePrice priceTiers media shortDescription');
     
     if (!cart) {
       return res.json({ success: true, data: null });
@@ -50,18 +57,33 @@ router.post('/items', auth, async (req: any, res) => {
   try {
     const parsed = addItemSchema.parse(req.body);
     
-    let cart = await CartModel.findOne({ userId: req.user!._id });
+    let cart = await CartModel.findOne({ userId: new mongoose.Types.ObjectId(req.user!._id) });
     
     if (!cart) {
       cart = new CartModel({ 
-        userId: req.user!._id, 
+        userId: new mongoose.Types.ObjectId(req.user!._id), 
         items: [], 
         subtotal: 0, 
         total: 0 
       });
     }
+
+    // If this is a requirement quote, mark it as in cart
+    if (parsed.quoteId) {
+      const quote = await RequirementQuote.findById(parsed.quoteId);
+      if (quote) {
+        quote.inCart = true;
+        await quote.save();
+      }
+    }
     
-    cart.items.push(parsed);
+    // Convert serviceId string to ObjectId
+    const cartItem = {
+      ...parsed,
+      serviceId: new mongoose.Types.ObjectId(parsed.serviceId)
+    };
+    
+    cart.items.push(cartItem);
     
     // Recalculate totals
     cart.subtotal = cart.items.reduce((sum, item) => sum + (item.priceAtAdd * item.qty), 0);
@@ -83,7 +105,7 @@ router.patch('/items/:itemId', auth, async (req: any, res) => {
   try {
     const parsed = updateItemSchema.parse(req.body);
     
-    const cart = await CartModel.findOne({ userId: req.user!._id });
+    const cart = await CartModel.findOne({ userId: new mongoose.Types.ObjectId(req.user!._id) });
     if (!cart) {
       return res.status(404).json({ success: false, error: 'Cart not found' });
     }
@@ -113,7 +135,7 @@ router.patch('/items/:itemId', auth, async (req: any, res) => {
 // DELETE /api/v1/cart/items/:itemId - Remove item from cart
 router.delete('/items/:itemId', auth, async (req: any, res) => {
   try {
-    const cart = await CartModel.findOne({ userId: req.user!._id });
+    const cart = await CartModel.findOne({ userId: new mongoose.Types.ObjectId(req.user!._id) });
     if (!cart) {
       return res.status(404).json({ success: false, error: 'Cart not found' });
     }

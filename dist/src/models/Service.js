@@ -14,6 +14,8 @@ const MediaSchema = new mongoose_1.Schema({
     isMain: { type: Boolean, default: false },
     isPremium: { type: Boolean, default: false },
     tags: [String],
+    publicId: String, // Cloudinary public ID for deletion
+    filename: String, // Original filename from upload
 });
 const MediaPackageSchema = new mongoose_1.Schema({
     name: { type: String, required: true },
@@ -111,6 +113,38 @@ const ServiceSchema = new mongoose_1.Schema({
     contactInfo: ContactSchema,
     businessHours: BusinessHoursSchema,
     portfolio: [PortfolioSchema],
+    // Commission fields - REQUIRED
+    commissionOffered: {
+        type: Number,
+        required: true,
+        min: [0.1, 'Commission percentage must be at least 0.1%'],
+        max: [100, 'Commission percentage cannot exceed 100%'],
+        validate: {
+            validator: function (v) {
+                return v >= 0.1 && v <= 100;
+            },
+            message: 'Commission percentage is required and must be between 0.1% and 100%'
+        }
+    },
+    commissionStatus: {
+        type: String,
+        enum: ['pending', 'negotiating', 'agreed', 'rejected'],
+        default: 'pending',
+        required: true
+    },
+    commissionId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'Commission' },
+    finalCommissionPercentage: {
+        type: Number,
+        min: 0,
+        max: 100,
+        validate: {
+            validator: function (v) {
+                return !v || (v >= 0 && v <= 100);
+            },
+            message: 'Final commission percentage must be between 0 and 100'
+        }
+    },
+    commissionNotes: { type: String, maxlength: 500 },
 }, { timestamps: true });
 ServiceSchema.index({ title: 'text', description: 'text', shortDescription: 'text' });
 ServiceSchema.index({ categoryId: 1, subcategoryId: 1, isActive: 1, status: 1 });

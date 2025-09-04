@@ -31,16 +31,27 @@ router.post('/register', async (req, res) => {
 });
 const loginSchema = zod_1.z.object({ email: zod_1.z.string().email(), password: zod_1.z.string().min(6) });
 router.post('/login', async (req, res) => {
+    console.log('🔐 Login attempt:', { email: req.body.email, passwordLength: req.body.password?.length });
     const parsed = loginSchema.safeParse(req.body);
-    if (!parsed.success)
+    if (!parsed.success) {
+        console.log('❌ Validation failed:', parsed.error.flatten());
         return res.status(400).json({ success: false, error: parsed.error.flatten() });
+    }
     const { email, password } = parsed.data;
+    console.log('✅ Validation passed, finding user with email:', email);
     const user = await User_1.User.findOne({ email });
-    if (!user)
+    if (!user) {
+        console.log('❌ User not found in database for email:', email);
         return res.status(401).json({ success: false, error: 'Invalid credentials' });
+    }
+    console.log('✅ User found:', { id: user._id, email: user.email, hasPassword: !!user.passwordHash });
     const ok = await bcrypt_1.default.compare(password, user.passwordHash);
-    if (!ok)
+    console.log('🔍 Password comparison result:', ok);
+    if (!ok) {
+        console.log('❌ Password comparison failed');
         return res.status(401).json({ success: false, error: 'Invalid credentials' });
+    }
+    console.log('✅ Login successful, generating tokens...');
     const uid = user._id.toString();
     const access = jsonwebtoken_1.default.sign({ _id: uid, role: user.role }, env_1.env.JWT_ACCESS_SECRET, { expiresIn: env_1.env.JWT_ACCESS_TTL });
     const refresh = jsonwebtoken_1.default.sign({ _id: uid, role: user.role }, env_1.env.JWT_REFRESH_SECRET, { expiresIn: env_1.env.JWT_REFRESH_TTL });

@@ -55,7 +55,8 @@ const RequirementQuoteSchema = new mongoose_1.Schema({
     },
     status: { type: String, enum: ['pending', 'accepted', 'rejected', 'withdrawn'], default: 'pending', index: true },
     chatId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'Chat' },
-    validUntil: { type: Date, index: true }
+    validUntil: { type: Date, index: true },
+    inCart: { type: Boolean, default: false, index: true }
 }, {
     timestamps: true,
     toJSON: { virtuals: true },

@@ -4,10 +4,31 @@ type Role = 'user' | 'manager' | 'admin';
 export interface Address {
   label: string;
   line1: string;
+  line2?: string;
   city: string;
   state: string;
   pincode: string;
   geo?: { lat: number; lng: number };
+  isDefault?: boolean;
+}
+
+export interface AadharCard {
+  number: string;
+  imageUrl: string;
+  verified?: boolean;
+  verifiedAt?: Date;
+  verifiedBy?: string;
+}
+
+export interface BankDetails {
+  accountNumber: string;
+  ifscCode: string;
+  bankName: string;
+  branchName: string;
+  accountHolderName: string;
+  verified?: boolean;
+  verifiedAt?: Date;
+  verifiedBy?: string;
 }
 
 export interface IUser extends Document {
@@ -19,6 +40,13 @@ export interface IUser extends Document {
   avatarUrl?: string;
   area?: string;
   addresses?: Address[];
+  // Manager specific fields
+  aadharCard?: AadharCard;
+  bankDetails?: BankDetails;
+  businessName?: string;
+  businessDescription?: string;
+  businessLicense?: string;
+  // Common fields
   ratingsAverage?: number;
   blocked?: boolean;
   blockReason?: string;
@@ -34,10 +62,31 @@ export interface IUser extends Document {
 const AddressSchema = new Schema<Address>({
   label: { type: String, required: true },
   line1: { type: String, required: true },
+  line2: String,
   city: { type: String, required: true },
   state: { type: String, required: true },
   pincode: { type: String, required: true },
   geo: { lat: Number, lng: Number },
+  isDefault: { type: Boolean, default: false },
+});
+
+const AadharCardSchema = new Schema<AadharCard>({
+  number: { type: String, required: true },
+  imageUrl: { type: String, required: true },
+  verified: { type: Boolean, default: false },
+  verifiedAt: Date,
+  verifiedBy: String,
+});
+
+const BankDetailsSchema = new Schema<BankDetails>({
+  accountNumber: { type: String, required: true },
+  ifscCode: { type: String, required: true },
+  bankName: { type: String, required: true },
+  branchName: { type: String, required: true },
+  accountHolderName: { type: String, required: true },
+  verified: { type: Boolean, default: false },
+  verifiedAt: Date,
+  verifiedBy: String,
 });
 
 const UserSchema = new Schema<IUser>({
@@ -49,6 +98,13 @@ const UserSchema = new Schema<IUser>({
   avatarUrl: String,
   area: String,
   addresses: [AddressSchema],
+  // Manager specific fields
+  aadharCard: AadharCardSchema,
+  bankDetails: BankDetailsSchema,
+  businessName: String,
+  businessDescription: String,
+  businessLicense: String,
+  // Common fields
   ratingsAverage: { type: Number, default: 0 },
   blocked: { type: Boolean, default: false, index: true },
   blockReason: String,

@@ -93,6 +93,7 @@ export interface IRequirementQuote extends Document {
   status: 'pending' | 'accepted' | 'rejected' | 'withdrawn';
   chatId?: Types.ObjectId; // Reference to chat room
   validUntil?: Date;
+  inCart?: boolean; // Track if quote is added to cart
   createdAt: Date;
   updatedAt: Date;
 }
@@ -110,7 +111,8 @@ const RequirementQuoteSchema = new Schema<IRequirementQuote>({
   },
   status: { type: String, enum: ['pending', 'accepted', 'rejected', 'withdrawn'], default: 'pending', index: true },
   chatId: { type: Schema.Types.ObjectId, ref: 'Chat' },
-  validUntil: { type: Date, index: true }
+  validUntil: { type: Date, index: true },
+  inCart: { type: Boolean, default: false, index: true }
 }, { 
   timestamps: true,
   toJSON: { virtuals: true },

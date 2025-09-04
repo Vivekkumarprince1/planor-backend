@@ -5,10 +5,29 @@ const mongoose_1 = require("mongoose");
 const AddressSchema = new mongoose_1.Schema({
     label: { type: String, required: true },
     line1: { type: String, required: true },
+    line2: String,
     city: { type: String, required: true },
     state: { type: String, required: true },
     pincode: { type: String, required: true },
     geo: { lat: Number, lng: Number },
+    isDefault: { type: Boolean, default: false },
+});
+const AadharCardSchema = new mongoose_1.Schema({
+    number: { type: String, required: true },
+    imageUrl: { type: String, required: true },
+    verified: { type: Boolean, default: false },
+    verifiedAt: Date,
+    verifiedBy: String,
+});
+const BankDetailsSchema = new mongoose_1.Schema({
+    accountNumber: { type: String, required: true },
+    ifscCode: { type: String, required: true },
+    bankName: { type: String, required: true },
+    branchName: { type: String, required: true },
+    accountHolderName: { type: String, required: true },
+    verified: { type: Boolean, default: false },
+    verifiedAt: Date,
+    verifiedBy: String,
 });
 const UserSchema = new mongoose_1.Schema({
     role: { type: String, enum: ['user', 'manager', 'admin'], default: 'user', index: true },
@@ -19,6 +38,13 @@ const UserSchema = new mongoose_1.Schema({
     avatarUrl: String,
     area: String,
     addresses: [AddressSchema],
+    // Manager specific fields
+    aadharCard: AadharCardSchema,
+    bankDetails: BankDetailsSchema,
+    businessName: String,
+    businessDescription: String,
+    businessLicense: String,
+    // Common fields
     ratingsAverage: { type: Number, default: 0 },
     blocked: { type: Boolean, default: false, index: true },
     blockReason: String,

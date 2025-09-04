@@ -1,9 +1,14 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const Cart_1 = require("../models/Cart");
+const Requirement_1 = require("../models/Requirement");
 const auth_1 = require("../middleware/auth");
 const zod_1 = require("zod");
+const mongoose_1 = __importDefault(require("mongoose"));
 const router = (0, express_1.Router)();
 // Validation schemas
 const addItemSchema = zod_1.z.object({
@@ -14,6 +19,11 @@ const addItemSchema = zod_1.z.object({
     notes: zod_1.z.string().optional(),
     addOnIds: zod_1.z.array(zod_1.z.string()).optional(),
     priceAtAdd: zod_1.z.number(),
+    // New fields for requirement quotes
+    requirementId: zod_1.z.string().optional(),
+    quoteId: zod_1.z.string().optional(),
+    managerId: zod_1.z.string().optional(),
+    isCustomQuote: zod_1.z.boolean().optional(),
 });
 const updateItemSchema = zod_1.z.object({
     qty: zod_1.z.number().min(1).optional(),
@@ -23,8 +33,8 @@ const updateItemSchema = zod_1.z.object({
 // GET /api/v1/cart - Get user's cart
 router.get('/', auth_1.auth, async (req, res) => {
     try {
-        const cart = await Cart_1.CartModel.findOne({ userId: req.user._id })
-            .populate('items.serviceId', 'title basePrice priceTiers');
+        const cart = await Cart_1.CartModel.findOne({ userId: new mongoose_1.default.Types.ObjectId(req.user._id) })
+            .populate('items.serviceId', 'title basePrice priceTiers media shortDescription');
         if (!cart) {
             return res.json({ success: true, data: null });
         }
@@ -38,16 +48,29 @@ router.get('/', auth_1.auth, async (req, res) => {
 router.post('/items', auth_1.auth, async (req, res) => {
     try {
         const parsed = addItemSchema.parse(req.body);
-        let cart = await Cart_1.CartModel.findOne({ userId: req.user._id });
+        let cart = await Cart_1.CartModel.findOne({ userId: new mongoose_1.default.Types.ObjectId(req.user._id) });
         if (!cart) {
             cart = new Cart_1.CartModel({
-                userId: req.user._id,
+                userId: new mongoose_1.default.Types.ObjectId(req.user._id),
                 items: [],
                 subtotal: 0,
                 total: 0
             });
         }
-        cart.items.push(parsed);
+        // If this is a requirement quote, mark it as in cart
+        if (parsed.quoteId) {
+            const quote = await Requirement_1.RequirementQuote.findById(parsed.quoteId);
+            if (quote) {
+                quote.inCart = true;
+                await quote.save();
+            }
+        }
+        // Convert serviceId string to ObjectId
+        const cartItem = {
+            ...parsed,
+            serviceId: new mongoose_1.default.Types.ObjectId(parsed.serviceId)
+        };
+        cart.items.push(cartItem);
         // Recalculate totals
         cart.subtotal = cart.items.reduce((sum, item) => sum + (item.priceAtAdd * item.qty), 0);
         cart.total = cart.subtotal; // Add fees/taxes later
@@ -65,7 +88,7 @@ router.post('/items', auth_1.auth, async (req, res) => {
 router.patch('/items/:itemId', auth_1.auth, async (req, res) => {
     try {
         const parsed = updateItemSchema.parse(req.body);
-        const cart = await Cart_1.CartModel.findOne({ userId: req.user._id });
+        const cart = await Cart_1.CartModel.findOne({ userId: new mongoose_1.default.Types.ObjectId(req.user._id) });
         if (!cart) {
             return res.status(404).json({ success: false, error: 'Cart not found' });
         }
@@ -90,7 +113,7 @@ router.patch('/items/:itemId', auth_1.auth, async (req, res) => {
 // DELETE /api/v1/cart/items/:itemId - Remove item from cart
 router.delete('/items/:itemId', auth_1.auth, async (req, res) => {
     try {
-        const cart = await Cart_1.CartModel.findOne({ userId: req.user._id });
+        const cart = await Cart_1.CartModel.findOne({ userId: new mongoose_1.default.Types.ObjectId(req.user._id) });
         if (!cart) {
             return res.status(404).json({ success: false, error: 'Cart not found' });
         }

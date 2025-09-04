@@ -249,10 +249,44 @@ router.post('/:id/quotes', auth_1.auth, (0, auth_1.requireRole)('manager'), asyn
             managerId
         });
         if (existingQuote) {
-            return res.status(400).json({
-                success: false,
-                message: 'You have already submitted a quote for this requirement'
-            });
+            // Allow updating if quote is still pending and not in cart
+            if (existingQuote.status === 'pending' && !existingQuote.inCart) {
+                existingQuote.price = price;
+                existingQuote.notes = notes;
+                existingQuote.availability = availability;
+                existingQuote.serviceId = serviceId;
+                existingQuote.validUntil = validUntil;
+                existingQuote.updatedAt = new Date();
+                await existingQuote.save();
+                // Send updated quote message
+                if (existingQuote.chatId) {
+                    const updateMessage = new Chat_1.MessageModel({
+                        chatId: existingQuote.chatId.toString(),
+                        senderId: managerId.toString(),
+                        content: `I've updated my quote to ₹${price}${notes ? `\n\nUpdated notes: ${notes}` : ''}`,
+                        type: 'text'
+                    });
+                    await updateMessage.save();
+                }
+                const populatedQuote = await Requirement_1.RequirementQuote.findById(existingQuote._id)
+                    .populate('managerId', 'name email businessName')
+                    .populate('serviceId', 'title')
+                    .exec();
+                return res.status(200).json({
+                    success: true,
+                    data: populatedQuote,
+                    chatId: existingQuote.chatId,
+                    message: 'Quote updated successfully'
+                });
+            }
+            else {
+                return res.status(400).json({
+                    success: false,
+                    message: existingQuote.inCart
+                        ? 'Quote is already in customer\'s cart and cannot be modified'
+                        : 'Quote has been processed and cannot be modified'
+                });
+            }
         }
         // Create or find existing chat room between manager and user
         let chat = await Chat_1.ChatModel.findOne({
@@ -307,6 +341,71 @@ router.post('/:id/quotes', auth_1.auth, (0, auth_1.requireRole)('manager'), asyn
         res.status(500).json({
             success: false,
             message: 'Failed to create quote'
+        });
+    }
+});
+// POST /api/requirements/:id/chat - Manager initiates chat for a requirement
+router.post('/:id/chat', auth_1.auth, (0, auth_1.requireRole)('manager'), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { message } = req.body;
+        const managerId = req.user._id;
+        // Check if requirement exists
+        const requirement = await Requirement_1.Requirement.findById(id)
+            .populate('userId', 'name email')
+            .exec();
+        if (!requirement) {
+            return res.status(404).json({
+                success: false,
+                message: 'Requirement not found'
+            });
+        }
+        if (requirement.status !== 'active') {
+            return res.status(400).json({
+                success: false,
+                message: 'Requirement is not active'
+            });
+        }
+        // Create or find existing chat room between manager and user
+        let chat = await Chat_1.ChatModel.findOne({
+            userId: requirement.userId._id.toString(),
+            managerId: managerId.toString()
+        });
+        if (!chat) {
+            chat = new Chat_1.ChatModel({
+                userId: requirement.userId._id.toString(),
+                managerId: managerId.toString(),
+                participants: [managerId.toString(), requirement.userId._id.toString()],
+                requirementId: id
+            });
+            await chat.save();
+        }
+        // Send initial message if provided
+        if (message && message.trim()) {
+            const chatMessage = new Chat_1.MessageModel({
+                chatId: chat._id.toString(),
+                senderId: managerId.toString(),
+                content: message.trim(),
+                type: 'text'
+            });
+            await chatMessage.save();
+        }
+        res.status(200).json({
+            success: true,
+            data: {
+                chatId: chat._id,
+                requirementId: requirement._id,
+                userId: requirement.userId._id,
+                // managerName: req.user!.name
+            },
+            message: 'Chat initiated successfully'
+        });
+    }
+    catch (error) {
+        console.error('Initiate chat error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to initiate chat'
         });
     }
 });

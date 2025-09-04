@@ -7,6 +7,7 @@ import rateLimit from 'express-rate-limit';
 import { Server as SocketIOServer } from 'socket.io';
 import { env } from './config/env';
 import authRoutes from './routes/auth';
+import profileRoutes from './routes/profile';
 import servicesRoutes from './routes/services';
 import categoriesRoutes from './routes/categories';
 import cartRoutes from './routes/cart';
@@ -16,6 +17,7 @@ import chatRoutes from './routes/chat';
 import managerRoutes from './routes/manager-test';
 import adminRoutes from './routes/admin';
 import requirementsRoutes from './routes/requirements';
+import areasRoutes from './routes/areas';
 import { MessageModel } from './models/Chat';
 import { auth, AuthPayload } from './middleware/auth';
 
@@ -30,6 +32,7 @@ app.use('/api/', limiter);
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/profile', profileRoutes);
 app.use('/api/v1/services', servicesRoutes);
 app.use('/api/v1/categories', categoriesRoutes);
 app.use('/api/v1/cart', cartRoutes);
@@ -39,6 +42,7 @@ app.use('/api/v1/chat', chatRoutes);
 app.use('/api/v1/manager', managerRoutes);
 app.use('/api/v1/admin', adminRoutes);
 app.use('/api/v1/requirements', requirementsRoutes);
+app.use('/api/v1/areas', areasRoutes);
 
 // Serve uploaded files
 app.use('/uploads', express.static('uploads'));

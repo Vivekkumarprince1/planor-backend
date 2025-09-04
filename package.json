@@ -11,12 +11,16 @@
     "start:prod": "NODE_ENV=production node dist/src/index.js",
     "test": "jest",
     "seed": "tsx scripts/seed.ts",
+    "seed:comprehensive": "tsx scripts/comprehensive-seed.ts",
+    "verify:seed": "tsx scripts/verify-seed.ts",
+    "manage:services": "tsx scripts/manage-services.ts",
+    "get:credentials": "tsx scripts/get-login-credentials.ts",
     "debug:mongo": "node -e \"console.log('MongoDB URI:', process.env.MONGO_URI)\"",
     "check:connection": "node -e \"const mongoose = require('mongoose'); mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/planner').then(() => { console.log('Connection successful'); process.exit(0); }).catch(err => { console.error('Connection failed:', err.message); process.exit(1); });\"",
     "postbuild": "echo 'Build completed successfully'"
   },
   "dependencies": {
-    "axios": "^1.7.7",
+    "axios": "^1.11.0",
     "bcrypt": "^5.1.1",
     "cloudinary": "^1.41.1",
     "cors": "^2.8.5",

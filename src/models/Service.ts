@@ -17,6 +17,8 @@ export interface IMediaItem {
   isMain?: boolean;
   isPremium?: boolean; // If this media requires premium access
   tags?: string[]; // Tags for better categorization
+  publicId?: string; // Cloudinary public ID for deletion
+  filename?: string; // Original filename from upload
 }
 
 export interface IFilter {
@@ -92,6 +94,12 @@ export interface IService extends Document {
     images: string[];
     completedAt?: Date;
   }[];
+  // Commission-related fields
+  commissionOffered?: number; // Manager's commission offer percentage (0-100)
+  commissionStatus?: 'pending' | 'negotiating' | 'agreed' | 'rejected';
+  commissionId?: Types.ObjectId; // Reference to Commission document for detailed negotiation
+  finalCommissionPercentage?: number; // Final agreed commission percentage
+  commissionNotes?: string; // Any notes about commission agreement
   createdAt: Date;
   updatedAt: Date;
 }
@@ -108,6 +116,8 @@ const MediaSchema = new Schema<IMediaItem>({
   isMain: { type: Boolean, default: false },
   isPremium: { type: Boolean, default: false },
   tags: [String],
+  publicId: String, // Cloudinary public ID for deletion
+  filename: String, // Original filename from upload
 });
 
 const MediaPackageSchema = new Schema({
@@ -214,6 +224,38 @@ const ServiceSchema = new Schema<IService>({
   contactInfo: ContactSchema,
   businessHours: BusinessHoursSchema,
   portfolio: [PortfolioSchema],
+  // Commission fields - REQUIRED
+  commissionOffered: { 
+    type: Number, 
+    required: true,
+    min: [0.1, 'Commission percentage must be at least 0.1%'], 
+    max: [100, 'Commission percentage cannot exceed 100%'],
+    validate: {
+      validator: function(v: number) {
+        return v >= 0.1 && v <= 100;
+      },
+      message: 'Commission percentage is required and must be between 0.1% and 100%'
+    }
+  },
+  commissionStatus: { 
+    type: String, 
+    enum: ['pending', 'negotiating', 'agreed', 'rejected'], 
+    default: 'pending',
+    required: true
+  },
+  commissionId: { type: Schema.Types.ObjectId, ref: 'Commission' },
+  finalCommissionPercentage: { 
+    type: Number, 
+    min: 0, 
+    max: 100,
+    validate: {
+      validator: function(v: number) {
+        return !v || (v >= 0 && v <= 100);
+      },
+      message: 'Final commission percentage must be between 0 and 100'
+    }
+  },
+  commissionNotes: { type: String, maxlength: 500 },
 }, { timestamps: true });
 
 ServiceSchema.index({ title: 'text', description: 'text', shortDescription: 'text' });

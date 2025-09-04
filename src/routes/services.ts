@@ -1,7 +1,9 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
+import mongoose from 'mongoose';
 import { Service } from '../models/Service';
 import { Category, Subcategory } from '../models/Taxonomy';
+import { Commission } from '../models/Commission';
 import { auth, AuthPayload } from '../middleware/auth';
 
 const router = Router();
@@ -186,6 +188,7 @@ const createServiceSchema = z.object({
   shortDescription: z.string().max(200).optional(),
   description: z.string().min(1),
   basePrice: z.number().positive(),
+  maxCapacity: z.number().positive().optional(),
   priceTiers: z.array(z.object({
     label: z.enum(['small', 'medium', 'large']),
     price: z.number().positive(),
@@ -197,27 +200,78 @@ const createServiceSchema = z.object({
     price: z.number().positive(),
     description: z.string().optional()
   })).optional(),
-  areaServed: z.array(z.string()).optional(),
-  maxCapacity: z.number().optional(),
+  areaServed: z.array(z.string()).min(1, "At least one service area is required").optional(),
   features: z.array(z.string()).optional(),
   tags: z.array(z.string()).optional(),
+  specifications: z.record(z.any()).optional(),
   location: z.object({
-    address: z.string(),
-    city: z.string(),
-    state: z.string(),
-    pincode: z.string(),
+    address: z.string().min(1),
+    city: z.string().min(1),
+    state: z.string().min(1),
+    pincode: z.string().min(1),
     coordinates: z.array(z.number()).length(2).optional()
-  }).optional(),
+  }).optional().nullable().refine(
+    (val) => !val || (val.address && val.city && val.state && val.pincode), 
+    "All location fields are required when location is provided"
+  ),
   contactInfo: z.object({
-    phone: z.string(),
-    email: z.string().email().optional(),
-    whatsapp: z.string().optional()
-  }).optional(),
+    phone: z.string().min(1, "Phone number is required"),
+    email: z.string().email().optional().or(z.literal("")).or(z.literal(null)).nullable(),
+    whatsapp: z.string().optional().or(z.literal("")).nullable()
+  }).optional().nullable().refine(
+    (val) => !val || (val.phone && val.phone.trim().length > 0), 
+    "Phone number is required when contact info is provided"
+  ),
   businessHours: z.record(z.object({
-    open: z.string(),
-    close: z.string(),
+    open: z.string().optional().or(z.literal("")),
+    close: z.string().optional().or(z.literal("")),
     isOpen: z.boolean()
+  })).optional().nullable().refine(
+    (val) => {
+      if (!val) return true; // null/undefined is okay
+      // Check if any day has valid hours when marked as open
+      const validHours = Object.values(val).every((day: any) => {
+        if (!day.isOpen) return true; // closed days don't need hours
+        return day.open && day.close; // open days need both open and close times
+      });
+      return validHours;
+    },
+    "Open days must have both open and close times"
+  ),
+  portfolio: z.array(z.object({
+    title: z.string(),
+    description: z.string(),
+    images: z.array(z.string()).optional(),
+    completedAt: z.string().datetime().optional().or(z.date().optional())
+  })).optional().nullable(),
+  media: z.array(z.object({
+    type: z.enum(['image', 'video']),
+    url: z.string().url(),
+    publicId: z.string().optional(),
+    filename: z.string().optional(),
+    caption: z.string().optional().or(z.literal("")),
+    description: z.string().optional().or(z.literal("")),
+    isMain: z.boolean().optional()
   })).optional(),
+  mediaPackages: z.array(z.object({
+    name: z.string(),
+    description: z.string().optional(),
+    mediaItems: z.array(z.string()).optional(),
+    price: z.number().positive(),
+    isDefault: z.boolean().optional()
+  })).optional(),
+  customFields: z.array(z.object({
+    fieldName: z.string(),
+    fieldType: z.enum(['text', 'number', 'boolean', 'select', 'multiselect']),
+    fieldValue: z.any(),
+    isRequired: z.boolean().optional()
+  })).optional(),
+  // Commission fields - REQUIRED
+  commissionOffered: z.number().min(0.1).max(100, "Commission percentage cannot exceed 100%").refine(
+    (val) => val >= 0.1 && val <= 100,
+    "Commission percentage is required and must be between 0.1% and 100%"
+  ),
+  commissionNotes: z.string().max(500).optional(),
 });
 
 // Create service (Manager only)
@@ -254,13 +308,42 @@ router.post('/', auth, async (req: AuthRequest, res: Response) => {
       .replace(/-+/g, '-')
       .replace(/^-|-$/g, '') + '-' + Date.now();
     
+    // Create the service with required commission
     const service = new Service({
       ...data,
       managerId: req.user._id,
       slug,
       status: 'pending', // Requires admin approval
+      // Commission is now required
+      commissionOffered: data.commissionOffered,
+      commissionStatus: 'pending',
+      commissionNotes: data.commissionNotes,
     });
     
+    await service.save();
+    
+    // Create Commission record for detailed tracking (always created since commission is required)
+    const commission = new Commission({
+      managerId: req.user._id,
+      serviceId: service._id,
+      offeredPercentage: data.commissionOffered,
+      status: 'pending',
+      type: 'manager_offer',
+    });
+    
+    // Add initial negotiation entry
+    commission.addNegotiationEntry(
+      'offer',
+      new mongoose.Types.ObjectId(req.user._id),
+      'manager',
+      data.commissionOffered,
+      data.commissionNotes || `Initial commission offer of ${data.commissionOffered}%`
+    );
+    
+    await commission.save();
+    
+    // Link the commission to the service
+    service.commissionId = commission._id as mongoose.Types.ObjectId;
     await service.save();
     
     return res.status(201).json({ success: true, data: service });
@@ -290,17 +373,109 @@ router.put('/:id', auth, async (req: AuthRequest, res: Response) => {
       return res.status(403).json({ success: false, error: 'Access denied' });
     }
     
+    console.log('=== SERVICE UPDATE DEBUG ===');
+    console.log('Request body:', JSON.stringify(req.body, null, 2));
+    
     const parsed = createServiceSchema.partial().safeParse(req.body);
     if (!parsed.success) {
+      console.log('Validation failed:', JSON.stringify(parsed.error.flatten(), null, 2));
       return res.status(400).json({ success: false, error: parsed.error.flatten() });
     }
     
-    const updates = parsed.data;
+    const updates = parsed.data as any; // Use 'any' to allow commission fields
+    
+    // Clean up data before updating
+    if (updates.addOns) {
+      // Remove _id fields from addOns to avoid conflicts
+      updates.addOns = updates.addOns.map(addOn => {
+        const { _id, ...cleanAddOn } = addOn as any;
+        return cleanAddOn;
+      });
+    }
+    
+    if (updates.priceTiers) {
+      // Remove _id fields from priceTiers to avoid conflicts  
+      updates.priceTiers = updates.priceTiers.map(tier => {
+        const { _id, ...cleanTier } = tier as any;
+        return cleanTier;
+      });
+    }
+    
+    if (updates.portfolio) {
+      // Remove _id fields from portfolio to avoid conflicts
+      updates.portfolio = updates.portfolio.map(item => {
+        const { _id, ...cleanItem } = item as any;
+        return cleanItem;
+      });
+    }
+    
+    if (updates.media) {
+      // Remove _id fields from media to avoid conflicts
+      updates.media = updates.media.map(mediaItem => {
+        const { _id, ...cleanMediaItem } = mediaItem as any;
+        return cleanMediaItem;
+      });
+    }
+    
+    if (updates.businessHours) {
+      // Remove invalid _id field from businessHours
+      const { _id, ...cleanBusinessHours } = updates.businessHours as any;
+      updates.businessHours = cleanBusinessHours;
+    }
     
     // If manager is updating, set status to pending for re-approval
     if (isOwner && !isAdmin) {
       // updates.status = 'pending';
     }
+    
+    // Handle commission updates
+    if ('commissionOffered' in updates && updates.commissionOffered !== service.commissionOffered) {
+      // Commission has been changed, update commission status
+      updates.commissionStatus = 'pending';
+      
+      if (updates.commissionOffered) {
+        // Create new commission or update existing one
+        if (service.commissionId) {
+          // Update existing commission
+          const existingCommission = await Commission.findById(service.commissionId);
+          if (existingCommission) {
+            existingCommission.offeredPercentage = updates.commissionOffered;
+            existingCommission.status = 'pending';
+            existingCommission.type = 'manager_offer';
+            existingCommission.addNegotiationEntry(
+              'offer_updated',
+              new mongoose.Types.ObjectId(req.user._id),
+              'manager',
+              updates.commissionOffered,
+              updates.commissionNotes || 'Commission offer updated'
+            );
+            await existingCommission.save();
+          }
+        } else {
+          // Create new commission
+          const commission = new Commission({
+            managerId: req.user._id,
+            serviceId: service._id,
+            offeredPercentage: updates.commissionOffered,
+            status: 'pending',
+            type: 'manager_offer',
+          });
+          
+          commission.addNegotiationEntry(
+            'offer',
+            new mongoose.Types.ObjectId(req.user._id),
+            'manager',
+            updates.commissionOffered,
+            updates.commissionNotes
+          );
+          
+          await commission.save();
+          updates.commissionId = commission._id as mongoose.Types.ObjectId;
+        }
+      }
+    }
+    
+    console.log('Cleaned updates data:', JSON.stringify(updates, null, 2));
     
     const updatedService = await Service.findByIdAndUpdate(
       req.params.id,
@@ -308,8 +483,15 @@ router.put('/:id', auth, async (req: AuthRequest, res: Response) => {
       { new: true, runValidators: true }
     ).populate('categoryId subcategoryId');
     
+    console.log('Service updated successfully:', updatedService?._id);
+    
     return res.json({ success: true, data: updatedService });
   } catch (error) {
+    console.error('Service update error:', error);
+    if (error instanceof Error) {
+      console.error('Error message:', error.message);
+      console.error('Error stack:', error.stack);
+    }
     return res.status(500).json({ success: false, error: 'Failed to update service' });
   }
 });
@@ -368,6 +550,105 @@ router.delete('/:id', auth, async (req: AuthRequest, res: Response) => {
     return res.json({ success: true, message: 'Service deleted successfully' });
   } catch (error) {
     return res.status(500).json({ success: false, error: 'Failed to delete service' });
+  }
+});
+
+// Get subcategories where a specific manager has services
+router.get('/manager/:managerId/subcategories', async (req: Request, res: Response) => {
+  try {
+    const { managerId } = req.params;
+    const { categoryId } = req.query;
+
+    if (!mongoose.Types.ObjectId.isValid(managerId)) {
+      return res.status(400).json({ success: false, error: 'Invalid managerId format' });
+    }
+
+    const filter: any = { 
+      managerId: new mongoose.Types.ObjectId(managerId),
+      isActive: true, 
+      status: 'approved' 
+    };
+
+    if (categoryId && mongoose.Types.ObjectId.isValid(categoryId as string)) {
+      filter.categoryId = new mongoose.Types.ObjectId(categoryId as string);
+    }
+
+    // Get distinct subcategory IDs where this manager has services
+    const subcategoryIds = await Service.distinct('subcategoryId', filter);
+    
+    // Filter out null/undefined values
+    const validSubcategoryIds = subcategoryIds.filter(id => id != null);
+
+    if (validSubcategoryIds.length === 0) {
+      return res.json({ success: true, data: [] });
+    }
+
+    // Get the subcategory details
+    const subcategories = await mongoose.model('Subcategory').find({
+      _id: { $in: validSubcategoryIds },
+      isActive: true
+    }).populate('categoryId', 'name slug').sort({ name: 1 });
+
+    return res.json({ success: true, data: subcategories });
+  } catch (error) {
+    console.error('Get manager subcategories error:', error);
+    return res.status(500).json({ success: false, error: 'Failed to fetch manager subcategories' });
+  }
+});
+
+// Get services by manager and category/subcategory
+router.get('/manager/:managerId/services', async (req: Request, res: Response) => {
+  try {
+    const { managerId } = req.params;
+    const { categoryId, subcategoryId, page = 1, limit = 12 } = req.query;
+
+    if (!mongoose.Types.ObjectId.isValid(managerId)) {
+      return res.status(400).json({ success: false, error: 'Invalid managerId format' });
+    }
+
+    const filter: any = { 
+      managerId: new mongoose.Types.ObjectId(managerId),
+      isActive: true, 
+      status: 'approved' 
+    };
+
+    if (categoryId && mongoose.Types.ObjectId.isValid(categoryId as string)) {
+      filter.categoryId = new mongoose.Types.ObjectId(categoryId as string);
+    }
+
+    if (subcategoryId && mongoose.Types.ObjectId.isValid(subcategoryId as string)) {
+      filter.subcategoryId = new mongoose.Types.ObjectId(subcategoryId as string);
+    }
+
+    const pageNum = parseInt(page as string);
+    const limitNum = parseInt(limit as string);
+    const skip = (pageNum - 1) * limitNum;
+
+    const [services, total] = await Promise.all([
+      Service.find(filter)
+        .populate('categoryId', 'name slug')
+        .populate('subcategoryId', 'name slug')
+        .populate('managerId', 'name email phone businessName profileImage')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .lean(),
+      Service.countDocuments(filter)
+    ]);
+
+    return res.json({ 
+      success: true, 
+      data: services,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        totalPages: Math.ceil(total / limitNum)
+      }
+    });
+  } catch (error) {
+    console.error('Get manager services error:', error);
+    return res.status(500).json({ success: false, error: 'Failed to fetch manager services' });
   }
 });
 

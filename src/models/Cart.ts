@@ -1,19 +1,24 @@
-import mongoose, { Document, Schema } from 'mongoose';
+import mongoose, { Document, Schema, Types } from 'mongoose';
 
 // Local type definitions to avoid import issues
 type TierLabel = 'small' | 'medium' | 'large';
 interface CartItem {
-  serviceId: string;
+  serviceId: Types.ObjectId;
   tierLabel?: TierLabel;
   qty: number;
   dateTime?: string;
   notes?: string;
   addOnIds?: string[];
   priceAtAdd: number;
+  // New fields for requirement quotes
+  requirementId?: string;
+  quoteId?: string;
+  managerId?: string;
+  isCustomQuote?: boolean;
 }
 interface CartType {
   _id: string;
-  userId: string;
+  userId: Types.ObjectId;
   items: CartItem[];
   subtotal: number;
   coupon?: string;
@@ -24,17 +29,22 @@ interface CartType {
 export interface CartDocument extends Omit<CartType, '_id'>, Document {}
 
 const cartItemSchema = new Schema<CartItem>({
-  serviceId: { type: String, required: true }, // Store as string for simplicity
+  serviceId: { type: Schema.Types.ObjectId, ref: 'Service', required: true },
   tierLabel: { type: String, enum: ['small', 'medium', 'large'] },
   qty: { type: Number, required: true, min: 1 },
   dateTime: String,
   notes: String,
   addOnIds: [String],
   priceAtAdd: { type: Number, required: true },
+  // New fields for requirement quotes
+  requirementId: String,
+  quoteId: String,
+  managerId: String,
+  isCustomQuote: { type: Boolean, default: false },
 });
 
 const cartSchema = new Schema<CartDocument>({
-  userId: { type: String, required: true }, // Store as string for simplicity
+  userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   items: [cartItemSchema],
   subtotal: { type: Number, required: true, default: 0 },
   coupon: String,
