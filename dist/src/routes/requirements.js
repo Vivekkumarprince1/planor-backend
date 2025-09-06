@@ -101,11 +101,24 @@ router.post('/', auth_1.auth, async (req, res) => {
 // GET /api/requirements - Get user's requirements or manager's relevant requirements
 router.get('/', auth_1.auth, async (req, res) => {
     try {
-        const { status, page = 1, limit = 10 } = req.query;
+        const { status, page = 1, limit = 10, view = 'my' } = req.query;
         const user = req.user;
+        console.log('GET /requirements - User info:', {
+            id: user._id,
+            role: user.role,
+            status: status,
+            view: view
+        });
         let query = {};
-        if (user.role === 'manager') {
-            // For managers, get requirements they can quote on
+        // Check if this is specifically for "my requirements" (user's own requirements)
+        // or if it's the default view which should show user's own requirements
+        if (view === 'my' || !view) {
+            // Always show user's own requirements
+            query = { userId: user._id };
+            console.log('My requirements query:', query);
+        }
+        else if (user.role === 'manager' && view === 'available') {
+            // For managers, get requirements they can quote on (only when explicitly requested)
             const managerServices = await Service_1.Service.find({
                 managerId: user._id,
                 status: 'approved',
@@ -119,17 +132,20 @@ router.get('/', auth_1.auth, async (req, res) => {
                     { subcategoryId: { $in: subcategoryIds } }
                 ]
             };
+            console.log('Manager available requirements query:', query);
         }
         else {
-            // For users, get their own requirements
+            // Default to user's own requirements
             query = { userId: user._id };
+            console.log('Default user query:', query);
         }
         if (status) {
             query.status = status;
         }
+        console.log('Final query:', query);
         const skip = (parseInt(page) - 1) * parseInt(limit);
         let requirements;
-        if (user.role === 'manager') {
+        if (user.role === 'manager' && view === 'available') {
             requirements = await Requirement_1.Requirement.find(query)
                 .populate('userId', 'name email phone')
                 .populate('categoryId', 'name')
@@ -152,6 +168,12 @@ router.get('/', auth_1.auth, async (req, res) => {
                 .limit(parseInt(limit))
                 .exec();
         }
+        console.log('Found requirements:', requirements.length);
+        console.log('Sample requirements:', requirements.slice(0, 2).map(r => ({
+            id: r._id,
+            userId: r.userId,
+            title: r.title || 'No title'
+        })));
         const total = await Requirement_1.Requirement.countDocuments(query);
         res.json({
             success: true,

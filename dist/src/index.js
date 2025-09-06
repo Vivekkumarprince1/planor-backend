@@ -3,32 +3,52 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-const http_1 = __importDefault(require("http"));
-const express_1 = __importDefault(require("express"));
-const mongoose_1 = __importDefault(require("mongoose"));
 const cors_1 = __importDefault(require("cors"));
-const helmet_1 = __importDefault(require("helmet"));
+const express_1 = __importDefault(require("express"));
 const express_rate_limit_1 = __importDefault(require("express-rate-limit"));
+const helmet_1 = __importDefault(require("helmet"));
+const http_1 = __importDefault(require("http"));
+const mongoose_1 = __importDefault(require("mongoose"));
 const socket_io_1 = require("socket.io");
 const env_1 = require("./config/env");
+const Chat_1 = require("./models/Chat");
+const admin_1 = __importDefault(require("./routes/admin"));
+const areas_1 = __importDefault(require("./routes/areas"));
 const auth_1 = __importDefault(require("./routes/auth"));
-const profile_1 = __importDefault(require("./routes/profile"));
-const services_1 = __importDefault(require("./routes/services"));
-const categories_1 = __importDefault(require("./routes/categories"));
 const cart_1 = __importDefault(require("./routes/cart"));
-const orders_1 = __importDefault(require("./routes/orders"));
-const uploads_1 = __importDefault(require("./routes/uploads"));
+const categories_1 = __importDefault(require("./routes/categories"));
 const chat_1 = __importDefault(require("./routes/chat"));
 const manager_test_1 = __importDefault(require("./routes/manager-test"));
-const admin_1 = __importDefault(require("./routes/admin"));
+const orders_1 = __importDefault(require("./routes/orders"));
+const profile_1 = __importDefault(require("./routes/profile"));
 const requirements_1 = __importDefault(require("./routes/requirements"));
-const areas_1 = __importDefault(require("./routes/areas"));
-const Chat_1 = require("./models/Chat");
+const reviews_1 = __importDefault(require("./routes/reviews"));
+const services_1 = __importDefault(require("./routes/services"));
+const uploads_1 = __importDefault(require("./routes/uploads"));
 const app = (0, express_1.default)();
+// Trust proxy when running behind a reverse proxy (like Render)
+app.set('trust proxy', 1);
 app.use(express_1.default.json({ limit: '5mb' }));
 app.use(express_1.default.urlencoded({ extended: true }));
 app.use((0, helmet_1.default)());
-app.use((0, cors_1.default)({ origin: env_1.env.CORS_ORIGIN, credentials: true }));
+// Prepare a cleaned whitelist of allowed origins and use a dynamic origin
+// callback so the Access-Control-Allow-Origin header is set explicitly
+const allowedOrigins = Array.isArray(env_1.env.CORS_ORIGIN)
+    ? env_1.env.CORS_ORIGIN.map((o) => o.trim()).filter(Boolean)
+    : [String(env_1.env.CORS_ORIGIN).trim()].filter(Boolean);
+app.use((0, cors_1.default)({
+    origin: (origin, cb) => {
+        // Allow non-browser requests (no Origin header, e.g., curl, mobile clients)
+        if (!origin)
+            return cb(null, true);
+        if (allowedOrigins.includes(origin))
+            return cb(null, true);
+        // If origin not allowed, return false (no CORS headers)
+        console.warn('CORS denied for origin:', origin);
+        return cb(null, false);
+    },
+    credentials: true,
+}));
 const limiter = (0, express_rate_limit_1.default)({ windowMs: 60 * 1000, max: 120 });
 app.use('/api/', limiter);
 app.get('/health', (_req, res) => res.json({ ok: true }));
@@ -43,11 +63,12 @@ app.use('/api/v1/chat', chat_1.default);
 app.use('/api/v1/manager', manager_test_1.default);
 app.use('/api/v1/admin', admin_1.default);
 app.use('/api/v1/requirements', requirements_1.default);
+app.use('/api/v1/reviews', reviews_1.default);
 app.use('/api/v1/areas', areas_1.default);
 // Serve uploaded files
 app.use('/uploads', express_1.default.static('uploads'));
 const server = http_1.default.createServer(app);
-const io = new socket_io_1.Server(server, { cors: { origin: env_1.env.CORS_ORIGIN } });
+const io = new socket_io_1.Server(server, { cors: { origin: allowedOrigins } });
 // Enhanced Socket.io handling
 io.use((socket, next) => {
     const token = socket.handshake.auth.token;

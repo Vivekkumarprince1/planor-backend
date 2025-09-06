@@ -41,6 +41,10 @@ const reviewSchema = new mongoose_1.Schema({
     userId: { type: String, required: true },
     rating: { type: Number, required: true, min: 1, max: 5 },
     comment: String,
+    status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
+    adminNotes: String,
+    reviewedAt: Date,
+    reviewedBy: String,
 }, {
     timestamps: { createdAt: true, updatedAt: false },
 });

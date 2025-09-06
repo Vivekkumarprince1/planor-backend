@@ -1,25 +1,26 @@
-import http from 'http';
-import express from 'express';
-import mongoose from 'mongoose';
 import cors from 'cors';
-import helmet from 'helmet';
+import express from 'express';
 import rateLimit from 'express-rate-limit';
+import helmet from 'helmet';
+import http from 'http';
+import mongoose from 'mongoose';
 import { Server as SocketIOServer } from 'socket.io';
 import { env } from './config/env';
+import { AuthPayload } from './middleware/auth';
+import { MessageModel } from './models/Chat';
+import adminRoutes from './routes/admin';
+import areasRoutes from './routes/areas';
 import authRoutes from './routes/auth';
-import profileRoutes from './routes/profile';
-import servicesRoutes from './routes/services';
-import categoriesRoutes from './routes/categories';
 import cartRoutes from './routes/cart';
-import ordersRoutes from './routes/orders';
-import uploadsRoutes from './routes/uploads';
+import categoriesRoutes from './routes/categories';
 import chatRoutes from './routes/chat';
 import managerRoutes from './routes/manager-test';
-import adminRoutes from './routes/admin';
+import ordersRoutes from './routes/orders';
+import profileRoutes from './routes/profile';
 import requirementsRoutes from './routes/requirements';
-import areasRoutes from './routes/areas';
-import { MessageModel } from './models/Chat';
-import { auth, AuthPayload } from './middleware/auth';
+import reviewsRoutes from './routes/reviews';
+import servicesRoutes from './routes/services';
+import uploadsRoutes from './routes/uploads';
 
 const app = express();
 
@@ -29,7 +30,26 @@ app.set('trust proxy', 1);
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(helmet());
-app.use(cors({ origin: env.CORS_ORIGIN, credentials: true }));
+
+// Prepare a cleaned whitelist of allowed origins and use a dynamic origin
+// callback so the Access-Control-Allow-Origin header is set explicitly
+const allowedOrigins: string[] = Array.isArray(env.CORS_ORIGIN)
+  ? env.CORS_ORIGIN.map((o: string) => o.trim()).filter(Boolean)
+  : [String(env.CORS_ORIGIN).trim()].filter(Boolean);
+
+app.use(
+  cors({
+    origin: (origin, cb) => {
+        // Allow non-browser requests (no Origin header, e.g., curl, mobile clients)
+        if (!origin) return cb(null, true);
+        if (allowedOrigins.includes(origin)) return cb(null, true);
+        // If origin not allowed, return false (no CORS headers)
+        console.warn('CORS denied for origin:', origin);
+        return cb(null, false);
+      },
+    credentials: true,
+  })
+);
 
 const limiter = rateLimit({ windowMs: 60 * 1000, max: 120 });
 app.use('/api/', limiter);
@@ -46,13 +66,14 @@ app.use('/api/v1/chat', chatRoutes);
 app.use('/api/v1/manager', managerRoutes);
 app.use('/api/v1/admin', adminRoutes);
 app.use('/api/v1/requirements', requirementsRoutes);
+app.use('/api/v1/reviews', reviewsRoutes);
 app.use('/api/v1/areas', areasRoutes);
 
 // Serve uploaded files
 app.use('/uploads', express.static('uploads'));
 
 const server = http.createServer(app);
-const io = new SocketIOServer(server, { cors: { origin: env.CORS_ORIGIN } });
+const io = new SocketIOServer(server, { cors: { origin: allowedOrigins } });
 
 // Enhanced Socket.io handling
 io.use((socket: any, next) => {

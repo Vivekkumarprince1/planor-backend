@@ -335,6 +335,48 @@ router.get('/commissions', auth_1.auth, auth_1.requireApprovedManager, async (re
         return res.status(500).json({ success: false, error: 'Failed to fetch commissions' });
     }
 });
+// Get commission summary for manager dashboard
+router.get('/commissions/summary', auth_1.auth, auth_1.requireApprovedManager, async (req, res) => {
+    try {
+        if (!req.user || req.user.role !== 'manager') {
+            return res.status(403).json({ success: false, error: 'Manager access required' });
+        }
+        // Get commission counts by status
+        const [pending, negotiating, accepted, rejected, total] = await Promise.all([
+            Commission_1.Commission.countDocuments({ managerId: req.user._id, status: 'pending' }),
+            Commission_1.Commission.countDocuments({ managerId: req.user._id, status: 'negotiating' }),
+            Commission_1.Commission.countDocuments({ managerId: req.user._id, status: 'accepted' }),
+            Commission_1.Commission.countDocuments({ managerId: req.user._id, status: 'rejected' }),
+            Commission_1.Commission.countDocuments({ managerId: req.user._id })
+        ]);
+        // Get average commission percentage for accepted commissions
+        const acceptedCommissions = await Commission_1.Commission.find({
+            managerId: req.user._id,
+            status: 'accepted'
+        }).select('finalPercentage offeredPercentage').lean();
+        const avgCommissionPercentage = acceptedCommissions.length > 0
+            ? acceptedCommissions.reduce((sum, c) => sum + (c.finalPercentage || c.offeredPercentage), 0) / acceptedCommissions.length
+            : 0;
+        return res.json({
+            success: true,
+            data: {
+                counts: {
+                    pending,
+                    negotiating,
+                    accepted,
+                    rejected,
+                    total
+                },
+                averagePercentage: Math.round(avgCommissionPercentage * 100) / 100,
+                recentActivity: [] // Can be expanded later
+            }
+        });
+    }
+    catch (error) {
+        console.error('Get commission summary error:', error);
+        return res.status(500).json({ success: false, error: 'Failed to fetch commission summary' });
+    }
+});
 // Get single commission details
 router.get('/commissions/:id', auth_1.auth, auth_1.requireApprovedManager, async (req, res) => {
     try {

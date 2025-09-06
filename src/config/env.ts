@@ -11,7 +11,7 @@ export const env = {
   JWT_REFRESH_SECRET: process.env.JWT_REFRESH_SECRET || 'dev_refresh_secret',
   JWT_ACCESS_TTL: process.env.JWT_ACCESS_TTL || '15m',
   JWT_REFRESH_TTL: process.env.JWT_REFRESH_TTL || '7d',
-  CORS_ORIGIN: (process.env.CORS_ORIGIN || 'http://localhost:19006,http://localhost:3000,http://192.168.43.56:8081,http://10.93.45.248:8081,http://10.93.45.248:19006,exp://10.93.45.248:8081,http://10.0.2.2:8081').split(','),
+  CORS_ORIGIN: (process.env.CORS_ORIGIN || 'http://localhost:19006,http://localhost:3000,http://localhost:8081,http://192.168.43.56:8081,http://10.93.45.248:8081,http://10.93.45.248:19006,exp://10.93.45.248:8081,http://10.0.2.2:8081').split(','),
   CLOUDINARY_CLOUD_NAME: process.env.CLOUDINARY_CLOUD_NAME || '',
   CLOUDINARY_API_KEY: process.env.CLOUDINARY_API_KEY || '',
   CLOUDINARY_API_SECRET: process.env.CLOUDINARY_API_SECRET || '',

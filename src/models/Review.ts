@@ -8,6 +8,10 @@ interface ReviewType {
   userId: string;
   rating: number;
   comment?: string;
+  status: 'pending' | 'approved' | 'rejected';
+  adminNotes?: string;
+  reviewedAt?: string;
+  reviewedBy?: string;
   createdAt: string;
 }
 
@@ -31,6 +35,10 @@ const reviewSchema = new Schema<ReviewDocument>({
   userId: { type: String, required: true },
   rating: { type: Number, required: true, min: 1, max: 5 },
   comment: String,
+  status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
+  adminNotes: String,
+  reviewedAt: Date,
+  reviewedBy: String,
 }, {
   timestamps: { createdAt: true, updatedAt: false },
 });

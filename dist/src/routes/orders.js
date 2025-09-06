@@ -157,7 +157,7 @@ router.post('/orders/verify', auth_1.auth, async (req, res) => {
     }
 });
 // GET /api/v1/orders/my - Get user's orders
-router.get('/orders/my', auth_1.auth, async (req, res) => {
+router.get('/my', auth_1.auth, async (req, res) => {
     try {
         const { page = 1, limit = 10 } = req.query;
         const orders = await Order_1.OrderModel.find({ userId: req.user._id })
@@ -172,7 +172,7 @@ router.get('/orders/my', auth_1.auth, async (req, res) => {
         res.status(500).json({ success: false, error: 'Failed to fetch orders' });
     }
 });
-// GET /api/v1/manager/orders - Get manager's orders
+// GET /api/v1/orders/manager/orders - Get manager's orders
 router.get('/manager/orders', auth_1.auth, (0, auth_1.requireRole)('manager'), async (req, res) => {
     try {
         const { page = 1, limit = 10, status } = req.query;
@@ -221,7 +221,7 @@ router.patch('/orders/:id/status', auth_1.auth, (0, auth_1.requireRole)('manager
     }
 });
 // GET /api/v1/orders/:id - Get order details
-router.get('/orders/:id', auth_1.auth, async (req, res) => {
+router.get('/:id', auth_1.auth, async (req, res) => {
     try {
         const order = await Order_1.OrderModel.findById(req.params.id)
             .populate('userId', 'name')
