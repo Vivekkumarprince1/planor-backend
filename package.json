@@ -20,6 +20,7 @@
     "postbuild": "echo 'Build completed successfully'"
   },
   "dependencies": {
+    "@types/nodemailer": "^7.0.1",
     "axios": "^1.11.0",
     "bcrypt": "^5.1.1",
     "cloudinary": "^1.41.1",
@@ -32,6 +33,7 @@
     "mongoose": "^8.6.1",
     "multer": "^1.4.5-lts.1",
     "multer-storage-cloudinary": "^4.0.0",
+    "nodemailer": "^7.0.6",
     "razorpay": "^2.9.4",
     "socket.io": "^4.7.5",
     "winston": "^3.13.1",

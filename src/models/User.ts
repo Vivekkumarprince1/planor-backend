@@ -1,4 +1,4 @@
-import { Schema, model, Document } from 'mongoose';
+import { Document, Schema, model } from 'mongoose';
 type Role = 'user' | 'manager' | 'admin';
 
 export interface Address {
@@ -93,7 +93,7 @@ const UserSchema = new Schema<IUser>({
   role: { type: String, enum: ['user', 'manager', 'admin'], default: 'user', index: true },
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true, index: true },
-  phone: String,
+  phone: { type: String, sparse: true, unique: true }, // sparse allows multiple null values
   passwordHash: { type: String, required: true },
   avatarUrl: String,
   area: String,

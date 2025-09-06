@@ -39,9 +39,9 @@ interface Address {
 
 interface OrderType {
   _id: string;
-  userId: string;
-  managerId: string;
-  serviceId?: string; // Added for easier reference
+  userId: string | mongoose.Types.ObjectId;
+  managerId: string | mongoose.Types.ObjectId;
+  serviceId?: string | mongoose.Types.ObjectId; // Added for easier reference
   items: OrderItem[];
   subtotal: number;
   fee: number;
@@ -104,9 +104,9 @@ const addressSnapshotSchema = new Schema<Address>({
 });
 
 const orderSchema = new Schema<OrderDocument>({
-  userId: { type: String, required: true },
-  managerId: { type: String, required: true },
-  serviceId: String, // Added for easier reference
+  userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  managerId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  serviceId: { type: Schema.Types.ObjectId, ref: 'Service' }, // Added for easier reference
   items: [orderItemSchema],
   subtotal: { type: Number, required: true },
   fee: { type: Number, default: 0 },
@@ -131,7 +131,7 @@ const orderSchema = new Schema<OrderDocument>({
 
 // Virtual field for totalAmount (alias for total)
 orderSchema.virtual('totalAmount').get(function() {
-  return this.total;
+  return (this as any).total;
 });
 
 // Ensure virtuals are included when converting to JSON

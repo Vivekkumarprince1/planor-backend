@@ -18,4 +18,12 @@ export const env = {
   RAZORPAY_KEY_ID: process.env.RAZORPAY_KEY_ID || '',
   RAZORPAY_KEY_SECRET: process.env.RAZORPAY_KEY_SECRET || '',
   EXPO_ACCESS_TOKEN: process.env.EXPO_ACCESS_TOKEN || '',
+  // Email configuration
+  EMAIL_USER: process.env.EMAIL_USER || '',
+  EMAIL_PASS: process.env.EMAIL_PASS || '',
+  // SMS configuration (for future use with Twilio or other services)
+  SMS_SERVICE_PROVIDER: process.env.SMS_SERVICE_PROVIDER || 'mock',
+  TWILIO_ACCOUNT_SID: process.env.TWILIO_ACCOUNT_SID || '',
+  TWILIO_AUTH_TOKEN: process.env.TWILIO_AUTH_TOKEN || '',
+  TWILIO_PHONE_NUMBER: process.env.TWILIO_PHONE_NUMBER || '',
 };

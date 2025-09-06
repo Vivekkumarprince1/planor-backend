@@ -1,13 +1,13 @@
-import { Router, Request, Response } from 'express';
-import { z } from 'zod';
+import { Request, Response, Router } from 'express';
 import mongoose from 'mongoose';
-import { OrderModel } from '../models/Order';
+import { z } from 'zod';
+import { auth, AuthPayload, requireRole } from '../middleware/auth';
 import { ChatModel, MessageModel } from '../models/Chat';
-import { User } from '../models/User';
-import { Category, Subcategory } from '../models/Taxonomy';
-import { Service } from '../models/Service';
 import { Commission } from '../models/Commission';
-import { auth, requireRole, AuthPayload } from '../middleware/auth';
+import { OrderModel } from '../models/Order';
+import { Service } from '../models/Service';
+import { Category, Subcategory } from '../models/Taxonomy';
+import { User } from '../models/User';
 
 const router = Router();
 
@@ -694,9 +694,9 @@ router.get('/orders', auth, requireRole('admin'), async (req: Request & { user?:
     }
 
     const orders = await OrderModel.find(filter)
-      .populate('userId', 'name email phone')
-      .populate('managerId', 'name email phone')
-      .populate('serviceId', 'title basePrice')
+      .populate('userId', 'name email phone avatarUrl area addresses ratingsAverage createdAt lastLoginAt role')
+      .populate('managerId', 'name email phone avatarUrl area businessName businessDescription aadharCard bankDetails ratingsAverage createdAt lastLoginAt role')
+      .populate('serviceId', 'title basePrice description')
       .sort({ createdAt: -1 })
       .limit(Number(limit))
       .skip((Number(page) - 1) * Number(limit));
@@ -737,8 +737,8 @@ router.get('/orders', auth, requireRole('admin'), async (req: Request & { user?:
 router.get('/orders/:id', auth, requireRole('admin'), async (req: Request & { user?: AuthPayload }, res: Response) => {
   try {
     const order = await OrderModel.findById(req.params.id)
-      .populate('userId', 'name email phone addresses')
-      .populate('managerId', 'name email phone')
+      .populate('userId', 'name email phone avatarUrl area addresses ratingsAverage createdAt lastLoginAt role')
+      .populate('managerId', 'name email phone avatarUrl area businessName businessDescription aadharCard bankDetails ratingsAverage createdAt lastLoginAt role')
       .populate('serviceId', 'title description basePrice');
 
     if (!order) {
